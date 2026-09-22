@@ -1,0 +1,124 @@
+name: b3-data-project
+
+services:
+  api:
+    build:
+      context: "."
+      dockerfile: infra/docker/Dockerfile.api
+
+    container_name: fast_api
+
+    networks:
+      - pipe-project
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    environment:
+      POSTGRES_HOST: postgres_dw
+      POSTGRES_URL: postgresql://postgres:postgres@postgres_dw:5432/b3_data_platform
+
+    volumes:
+      - ./data:/app/data 
+      - ./src:/app/src
+      - ./api:/app/api
+
+    restart: unless-stopped
+
+
+#########################################################
+
+  postgres_dw:
+    image: postgres:15
+    container_name: postgres_dw
+
+    networks:
+      - pipe-project
+
+    ports:
+      - "5432:5432"
+    
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: ${POSTGRES_DB:-data_warehouse}
+
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/ddl:/docker-entrypoint-initdb.d
+
+    
+    restart: unless-stopped
+
+
+
+
+
+  postgres_airflow:
+    image: postgres:15
+
+    container_name: postgres_airflow
+
+    networks:
+      - pipe-project
+
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    
+    restart: unless-stopped
+
+
+
+
+  airflow:
+    image: apache/airflow:3.0.6
+
+    container_name: airflow
+
+    networks:
+      - pipe-project
+    
+    depends_on:
+      - postgres_airflow
+
+    ports:
+      - "8080:8080"
+    
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+        postgresql+psycopg2://airflow:airflow@postgres_airflow:5432/airflow
+      _PIP_ADDITIONAL_REQUIREMENTS: >-
+        pandas requests yfinance sqlalchemy psycopg2-binary polars pyarrow
+      PYTHONPATH: /opt/airflow
+
+    volumes:
+      - ./data:/opt/airflow/data
+      - ./src:/opt/airflow/src
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+
+    command: standalone
+
+    restart: unless-stopped
+  
+networks:
+  pipe-project:
+    driver: bridge
+    name: pipe-project
+
+volumes:
+  postgres_data:
+    name: postgres_data_volume
+
+  airflow_postgres_data:
+    name: airflow_postgres_data_volume
